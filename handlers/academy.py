@@ -17,8 +17,6 @@ async def academy_main(callback: CallbackQuery):
     user_id = callback.from_user.id
     user = await get_user(user_id)
 
-    await create_academy_tables()
-
     completed_count = await complete_trainings(user_id)
     if completed_count > 0:
         await callback.answer(f"🎓 Обучение завершено! Выпустилось специалистов: {completed_count}", show_alert=True)

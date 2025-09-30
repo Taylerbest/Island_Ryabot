@@ -5,10 +5,13 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from utils.message_helper import send_formatted
-from database.models import get_user, create_user, update_user_language, init_database, clear_user_state
-from keyboards.main_menu import get_start_menu, get_island_menu
+from database.models import (
+    get_user, create_user, update_user_language,
+    init_database, clear_user_state, complete_tutorial
+)
+from keyboards.main_menu import get_start_menu, get_island_menu, get_tutorial_keyboard
 from utils.texts import t
-from utils.states import MenuState
+from utils.states import MenuState, TutorialState
 
 router = Router()
 
@@ -17,14 +20,13 @@ async def start_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.username
 
-    await init_database()
     user = await get_user(user_id)
 
     if not user:
         # Новый пользователь: предложить выбор языка
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=t("language_ru"), callback_data="lang_ru")]
+            [InlineKeyboardButton(text=t("language_ru", "ru"), callback_data="lang_ru")]
         ])
         welcome_text = t("choose_language", "ru")
         await send_formatted(message, welcome_text, reply_markup=keyboard)
@@ -44,7 +46,7 @@ async def send_main_menu(message: Message, user, state: FSMContext):
         active_expeditions=0
     )
 
-    keyboard = get_start_menu(user.language)  # Клавиатура главного меню
+    keyboard = get_start_menu(user.language)
     await send_formatted(
         message,
         welcome_text,
@@ -83,8 +85,7 @@ async def enter_island(message: Message, state: FSMContext):
                       level=user.level,
                       energy=user.energy,
                       ryabucks=user.ryabucks,
-                      rbtc=f"{user.rbtc:.2f}"
-                      )
+                      rbtc=f"{user.rbtc:.2f}")
 
     await send_formatted(
         message,
@@ -104,8 +105,6 @@ async def start_tutorial(message: Message, user, state: FSMContext):
     )
     await state.set_state(TutorialState.STEP_1)
 
-
-
 @router.callback_query(F.data == "tutorial_start")
 async def tutorial_step_1(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -121,7 +120,6 @@ async def tutorial_step_1(callback: CallbackQuery, state: FSMContext):
     )
     await state.set_state(TutorialState.STEP_1)
     await callback.answer()
-
 
 @router.callback_query(F.data == "tutorial_step_2")
 async def tutorial_step_2(callback: CallbackQuery, state: FSMContext):
@@ -139,7 +137,6 @@ async def tutorial_step_2(callback: CallbackQuery, state: FSMContext):
     await state.set_state(TutorialState.STEP_2)
     await callback.answer()
 
-
 @router.callback_query(F.data == "tutorial_step_3")
 async def tutorial_step_3(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -156,26 +153,20 @@ async def tutorial_step_3(callback: CallbackQuery, state: FSMContext):
     await state.set_state(TutorialState.STEP_3)
     await callback.answer()
 
-
 @router.callback_query(F.data == "tutorial_complete")
 async def tutorial_complete_handler(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    user = await get_user(user_id)
-
     await complete_tutorial(user_id)
 
+    user = await get_user(user_id)
     complete_text = t('tutorial_complete', user.language)
     await callback.message.edit_text(text=complete_text)
-
-    # Обновляем пользователя после завершения туториала
-    user = await get_user(user_id)
 
     entering_text = t('entering_island', user.language,
                       level=user.level,
                       energy=user.energy,
                       ryabucks=user.ryabucks,
-                      rbtc=f"{user.rbtc:.2f}"
-                      )
+                      rbtc=f"{user.rbtc:.2f}")
 
     await send_formatted(
         callback,
@@ -185,23 +176,17 @@ async def tutorial_complete_handler(callback: CallbackQuery, state: FSMContext):
     await state.set_state(MenuState.ON_ISLAND)
     await callback.answer()
 
-
 @router.callback_query(F.data == "tutorial_skip")
 async def tutorial_skip(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    user = await get_user(user_id)
-
     await complete_tutorial(user_id)
-
-    # Обновляем пользователя
     user = await get_user(user_id)
 
     entering_text = t('entering_island', user.language,
                       level=user.level,
                       energy=user.energy,
                       ryabucks=user.ryabucks,
-                      rbtc=f"{user.rbtc:.2f}"
-                      )
+                      rbtc=f"{user.rbtc:.2f}")
 
     await callback.message.edit_text(text="Туториал пропущен!")
     await callback.message.answer(
@@ -211,7 +196,6 @@ async def tutorial_skip(callback: CallbackQuery, state: FSMContext):
 
     await state.set_state(MenuState.ON_ISLAND)
     await callback.answer()
-
 
 @router.message(F.text.in_(["⚙️ Настройки", "📱 Поддержка", "🌍 Язык"]))
 async def start_menu_buttons(message: Message, state: FSMContext):

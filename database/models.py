@@ -5,6 +5,29 @@ import aiosqlite
 from datetime import datetime
 from typing import Optional
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+async def execute_db(query: str, params: tuple = (), fetch_one: bool = False, fetch_all: bool = False):
+    try:
+        conn = await connection_pool.acquire()
+        cursor = await conn.execute(query, params)
+
+        if fetch_one:
+            result = await cursor.fetchone()
+        elif fetch_all:
+            result = await cursor.fetchall()
+        else:
+            await conn.commit()
+            result = cursor.lastrowid
+
+        await connection_pool.release(conn)
+        return result
+    except Exception as e:
+        logger.error(f"Database error: {e} | Query: {query} | Params: {params}", exc_info=True)
+        return None
 
 # Путь к базе данных
 DB_PATH = "ryabot_island.db"
