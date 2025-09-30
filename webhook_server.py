@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import logging
 import asyncio
 from middlewares.throttling import ThrottlingMiddleware
+from handlers.admin import router as admin_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -18,7 +19,8 @@ app = FastAPI()
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
-dp.callback_query.middleware(ThrottlingMiddleware(rate_limit=0.5))  # 0.5 сек между кликами
+dp.callback_query.middleware(ThrottlingMiddleware(rate_limit=0.3))
+dp.include_router(admin_router)
 
 # Регистрация всех роутеров
 from handlers.start import router as start_router

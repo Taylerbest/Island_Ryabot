@@ -5,7 +5,7 @@ import time
 
 
 class ThrottlingMiddleware(BaseMiddleware):
-    def __init__(self, rate_limit: float = 1.0):
+    def __init__(self, rate_limit: float = 0.5):
         self.rate_limit = rate_limit
         self.user_timings = {}
 
@@ -18,10 +18,12 @@ class ThrottlingMiddleware(BaseMiddleware):
         user_id = event.from_user.id
         current_time = time.time()
 
-        # Проверяем, не слишком ли частые запросы
         if user_id in self.user_timings:
             if current_time - self.user_timings[user_id] < self.rate_limit:
-                await event.answer("⏱️ Слишком быстро! Подождите секунду.", show_alert=False)
+                try:
+                    await event.answer("⏱️ Слишком быстро!", show_alert=False)
+                except:
+                    pass
                 return None
 
         self.user_timings[user_id] = current_time
