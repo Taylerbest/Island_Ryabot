@@ -4,7 +4,6 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
-
 from database.models import get_user
 from keyboards.town import get_town_menu
 from utils.texts import t
@@ -13,11 +12,8 @@ from utils.message_helper import send_formatted
 
 router = Router()
 
-
-# Обработчик текстовых сообщений для входа в город
 @router.message(F.text.in_(["🏢 Город", "Town", "🏛️ Город"]))
 async def town_handler(message: Message, state: FSMContext):
-    """Вход в город через текстовое меню"""
     user_id = message.from_user.id
     user = await get_user(user_id)
 
@@ -33,17 +29,15 @@ async def town_handler(message: Message, state: FSMContext):
         ryabucks=user.ryabucks
     )
 
-    await message.answer(
-        text=town_text,
+    await send_formatted(
+        message,
+        town_text,
         reply_markup=get_town_menu(user.language)
     )
     await state.set_state(MenuState.ON_ISLAND)
 
-
-# НОВЫЙ ОБРАБОТЧИК - для callback-кнопок возврата в город
 @router.callback_query(F.data == "town")
 async def town_callback_handler(callback: CallbackQuery, state: FSMContext):
-    """Возврат в город через callback-кнопку"""
     user_id = callback.from_user.id
     user = await get_user(user_id)
 
@@ -61,8 +55,8 @@ async def town_callback_handler(callback: CallbackQuery, state: FSMContext):
 
     await send_formatted(
         callback,
-        academy_text,
-        reply_markup=get_academy_menu(),
+        town_text,
+        reply_markup=get_town_menu(user.language),
         edit=True
     )
     await state.set_state(MenuState.ON_ISLAND)
