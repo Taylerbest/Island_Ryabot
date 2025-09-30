@@ -4,22 +4,30 @@ from utils.message_helper import send_formatted
 from database.models import (get_user, hire_worker, can_hire_worker,
                              get_hired_workers_count, start_training,
                              get_active_trainings, complete_trainings,
-                             get_training_slots_info, get_specialists_count,
-                             create_academy_tables)
+                             get_training_slots_info, get_specialists_count)
 from keyboards.academy import (get_academy_menu, get_labor_exchange_menu,
                                get_profession_selection_menu, get_training_class_menu)
 from utils.texts import t
 
 router = Router()
 
+
 @router.callback_query(F.data == "academy")
 async def academy_main(callback: CallbackQuery):
+    try:
+        await callback.answer()  # ← СРАЗУ ОТВЕЧАЕМ
+    except Exception:
+        pass
+
     user_id = callback.from_user.id
     user = await get_user(user_id)
 
     completed_count = await complete_trainings(user_id)
     if completed_count > 0:
-        await callback.answer(f"🎓 Обучение завершено! Выпустилось специалистов: {completed_count}", show_alert=True)
+        try:
+            await callback.answer(f"🎓 Обучение завершено! Выпустилось специалистов: {completed_count}", show_alert=True)
+        except:
+            pass
 
     workers_count = await get_hired_workers_count(user_id)
     specialists_count = await get_specialists_count(user_id)
@@ -38,10 +46,15 @@ async def academy_main(callback: CallbackQuery):
         reply_markup=get_academy_menu(),
         edit=True
     )
-    await callback.answer()
+
 
 @router.callback_query(F.data == "labor_exchange")
 async def labor_exchange(callback: CallbackQuery):
+    try:
+        await callback.answer()
+    except Exception:
+        pass
+
     user_id = callback.from_user.id
     user = await get_user(user_id)
 
@@ -69,20 +82,29 @@ async def labor_exchange(callback: CallbackQuery):
         reply_markup=get_labor_exchange_menu(can_hire, sum(workers_count.values())),
         edit=True
     )
-    await callback.answer()
+
 
 @router.callback_query(F.data.startswith("hire_slot_"))
 async def hire_slot(callback: CallbackQuery):
     user_id = callback.from_user.id
     success, message = await hire_worker(user_id)
 
-    await callback.answer(message, show_alert=True)
+    try:
+        await callback.answer(message, show_alert=True)
+    except:
+        pass
 
     if success:
         await labor_exchange(callback)
 
+
 @router.callback_query(F.data == "expert_courses")
 async def expert_courses(callback: CallbackQuery):
+    try:
+        await callback.answer()
+    except Exception:
+        pass
+
     user_id = callback.from_user.id
     user = await get_user(user_id)
 
@@ -102,7 +124,7 @@ async def expert_courses(callback: CallbackQuery):
         reply_markup=get_profession_selection_menu(),
         edit=True
     )
-    await callback.answer()
+
 
 @router.callback_query(F.data.startswith("train_"))
 async def train_profession(callback: CallbackQuery):
@@ -110,13 +132,23 @@ async def train_profession(callback: CallbackQuery):
     profession = callback.data.split("_")[1]
 
     success, message = await start_training(user_id, profession)
-    await callback.answer(message, show_alert=True)
+
+    try:
+        await callback.answer(message, show_alert=True)
+    except:
+        pass
 
     if success:
         await expert_courses(callback)
 
+
 @router.callback_query(F.data == "training_class")
 async def training_class(callback: CallbackQuery):
+    try:
+        await callback.answer()
+    except Exception:
+        pass
+
     user_id = callback.from_user.id
     user = await get_user(user_id)
 
@@ -155,8 +187,12 @@ async def training_class(callback: CallbackQuery):
         reply_markup=get_training_class_menu(),
         edit=True
     )
-    await callback.answer()
+
 
 @router.callback_query(F.data == "back_to_academy")
 async def back_to_academy(callback: CallbackQuery):
+    try:
+        await callback.answer()
+    except Exception:
+        pass
     await academy_main(callback)
