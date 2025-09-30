@@ -1,13 +1,82 @@
 """
 Модели базы данных для Ryabot Island (с исправлением миграций)
 """
-import asyncio
 import aiosqlite
 from datetime import datetime
 from typing import Optional
+import asyncio
 
 # Путь к базе данных
 DB_PATH = "ryabot_island.db"
+
+# ====== НОВЫЙ КОД ДЛЯ CONNECTION POOL ======
+
+class SQLiteConnectionPool:
+    """Пул соединений для ускорения работы с SQLite"""
+
+    def __init__(self, db_path: str, max_connections: int = 10):
+        self.db_path = db_path
+        self.max_connections = max_connections
+        self._pool = []
+        self._lock = asyncio.Lock()
+
+    async def acquire(self):
+        """Взять соединение из пула"""
+        async with self._lock:
+            if self._pool:
+                return self._pool.pop()
+
+            conn = await aiosqlite.connect(self.db_path)
+            await conn.execute("PRAGMA journal_mode=WAL")
+            await conn.execute("PRAGMA synchronous=NORMAL")
+            return conn
+
+    async def release(self, conn):
+        """Вернуть соединение обратно в пул"""
+        async with self._lock:
+            if len(self._pool) < self.max_connections:
+                self._pool.append(conn)
+            else:
+                await conn.close()
+
+    async def close_all(self):
+        """Закрыть все соединения при выключении бота"""
+        async with self._lock:
+            for conn in self._pool:
+                await conn.close()
+            self._pool.clear()
+
+
+# Создаем глобальный пул (найди переменную DB_PATH в твоем файле)
+_connection_pool = SQLiteConnectionPool(DB_PATH, max_connections=10)
+
+
+async def execute_db(query: str, params=(), fetch_one=False, fetch_all=False):
+    """
+    Выполнить запрос через connection pool.
+
+    Примеры:
+        row = await execute_db("SELECT * FROM users WHERE user_id=?", (123,), fetch_one=True)
+        rows = await execute_db("SELECT * FROM users", fetch_all=True)
+        await execute_db("UPDATE users SET energy=? WHERE user_id=?", (100, 123))
+    """
+    conn = await _connection_pool.acquire()
+    try:
+        cursor = await conn.execute(query, params)
+
+        if fetch_one:
+            result = await cursor.fetchone()
+        elif fetch_all:
+            result = await cursor.fetchall()
+        else:
+            result = cursor.lastrowid
+
+        await conn.commit()
+        return result
+    finally:
+        await _connection_pool.release(conn)
+
+
 
 class User:
     """Модель пользователя"""

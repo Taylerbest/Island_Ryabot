@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from handlers.start import router as start_router
 from handlers.town import router as town_router
 from handlers.academy import router as academy_router
+from database.models import _connection_pool
 
 
 # Будем добавлять по мере создания:
@@ -38,8 +39,13 @@ async def main():
     dp.include_router(academy_router)
 
     # Запускаем бота
-    print("🌟 Ryabot Island запущен! 🌟")
-    await dp.start_polling(bot)
+    try:
+        print("🌟 Ryabot Island запущен!")
+        await dp.start_polling(bot)
+    finally:
+        # Закрываем пул соединений при выключении
+        await _connection_pool.close_all()
+        await bot.session.close()
 
 
 if __name__ == '__main__':

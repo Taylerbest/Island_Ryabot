@@ -7,6 +7,8 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from datetime import datetime, timedelta
 import random
+from utils.message_helper import send_formatted
+
 
 from database.models import (
     get_user, create_user, update_user_language, init_database,
@@ -36,9 +38,10 @@ async def start_handler(message: Message, state: FSMContext):
             [InlineKeyboardButton(text=t('language_ru'), callback_data="lang_ru")]
         ])
 
-        await message.answer(
-            text=t('choose_language'),
-            reply_markup=keyboard
+        await send_formatted(
+            message,
+            entering_text,
+            reply_markup=get_island_menu(user.language)
         )
         await state.set_state(MenuState.OUTSIDE_ISLAND)
     else:
@@ -64,8 +67,9 @@ async def menu_handler(message: Message, state: FSMContext):
         rbtc=f"{user.rbtc:.2f}"
     )
 
-    await message.answer(
-        text=menu_text,
+    await send_formatted(
+        message,
+        entering_text,
         reply_markup=get_island_menu(user.language)
     )
     await state.set_state(MenuState.ON_ISLAND)
@@ -187,9 +191,10 @@ async def show_start_menu(message: Message, user, state: FSMContext):
         active_expeditions=stats['active_expeditions']
     )
 
-    await message.answer(
-        text=welcome_text,
-        reply_markup=get_start_menu(user.language)
+    await send_formatted(
+        message,
+        entering_text,
+        reply_markup=get_island_menu(user.language)
     )
     await state.set_state(MenuState.OUTSIDE_ISLAND)
 
@@ -228,8 +233,9 @@ async def enter_island(message: Message, state: FSMContext):
         rbtc=f"{user.rbtc:.2f}"
     )
 
-    await message.answer(
-        text=entering_text,
+    await send_formatted(
+        message,
+        entering_text,
         reply_markup=get_island_menu(user.language)
     )
     await state.set_state(MenuState.ON_ISLAND)
@@ -239,9 +245,10 @@ async def start_tutorial(message: Message, user, state: FSMContext):
     """Запускает туториал для новых игроков"""
     tutorial_text = t('tutorial_welcome', user.language)
 
-    await message.answer(
-        text=tutorial_text,
-        reply_markup=get_tutorial_keyboard(0, user.language)
+    await send_formatted(
+        message,
+        entering_text,
+        reply_markup=get_island_menu(user.language)
     )
     await state.set_state(TutorialState.STEP_1)
 
@@ -304,11 +311,11 @@ async def tutorial_complete_handler(callback: CallbackQuery, state: FSMContext):
         rbtc=f"{user.rbtc:.2f}"
     )
 
-    await callback.message.answer(
-        text=entering_text,
+    await send_formatted(
+        message,
+        entering_text,
         reply_markup=get_island_menu(user.language)
     )
-
     await state.set_state(MenuState.ON_ISLAND)
     await callback.answer()
 

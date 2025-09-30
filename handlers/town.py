@@ -9,6 +9,7 @@ from database.models import get_user
 from keyboards.town import get_town_menu
 from utils.texts import t
 from utils.states import MenuState
+from utils.message_helper import send_formatted
 
 router = Router()
 
@@ -58,9 +59,11 @@ async def town_callback_handler(callback: CallbackQuery, state: FSMContext):
         ryabucks=user.ryabucks
     )
 
-    await callback.message.edit_text(
-        text=town_text,
-        reply_markup=get_town_menu(user.language)
+    await send_formatted(
+        callback,
+        academy_text,
+        reply_markup=get_academy_menu(),
+        edit=True
     )
     await state.set_state(MenuState.ON_ISLAND)
     await callback.answer()

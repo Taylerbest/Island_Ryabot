@@ -4,6 +4,7 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
+from utils.message_helper import send_formatted
 
 from database.models import (
     get_user, hire_worker, can_hire_worker, get_hired_workers_count,
@@ -43,11 +44,13 @@ async def academy_main(callback: CallbackQuery, state: FSMContext):
         specialists=sum(specialists_count.values())
     )
 
-    await callback.message.edit_text(
-        text=academy_text,
+    await send_formatted(
+        callback,
+        academy_text,
         reply_markup=get_academy_menu(),
-        parse_mode="Markdown"
+        edit=True
     )
+
     await callback.answer()
 
 
@@ -75,11 +78,13 @@ async def labor_exchange(callback: CallbackQuery):
         status=status
     )
 
-    await callback.message.edit_text(
-        text=exchange_text,
-        reply_markup=get_labor_exchange_menu(can_hire, workers_count.get('laborer', 0)),
-        parse_mode="Markdown"
+    await send_formatted(
+        callback,
+        academy_text,
+        reply_markup=get_academy_menu(),
+        edit=True
     )
+
     await callback.answer()
 
 
@@ -142,11 +147,13 @@ async def expert_courses(callback: CallbackQuery):
         slots_total=slots_info['total']
     )
 
-    await callback.message.edit_text(
-        text=courses_text,
-        reply_markup=get_profession_selection_menu(),
-        parse_mode="Markdown"
+    await send_formatted(
+        callback,
+        academy_text,
+        reply_markup=get_academy_menu(),
+        edit=True
     )
+
     await callback.answer()
 
 
@@ -201,11 +208,13 @@ async def training_class(callback: CallbackQuery):
             training_list=training_list.strip()
         )
 
-    await callback.message.edit_text(
-        text=class_text,
-        reply_markup=get_training_class_menu(),
-        parse_mode="Markdown"
+    await send_formatted(
+        callback,
+        academy_text,
+        reply_markup=get_academy_menu(),
+        edit=True
     )
+
     await callback.answer()
 
 
