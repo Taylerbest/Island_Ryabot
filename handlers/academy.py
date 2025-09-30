@@ -11,9 +11,10 @@ from database.models import (
     get_training_slots_info, get_specialists_count, create_academy_tables
 )
 from keyboards.academy import (
-    get_academy_menu, get_labor_exchange_menu, get_training_menu,
+    get_academy_menu, get_labor_exchange_menu,
     get_profession_selection_menu, get_training_class_menu
 )
+from utils.texts import t
 
 router = Router()
 
@@ -36,23 +37,16 @@ async def academy_main(callback: CallbackQuery, state: FSMContext):
     specialists_count = await get_specialists_count(user_id)
     active_trainings = await get_active_trainings(user_id)
 
-    academy_text = (
-        "🏫 <b>АВИАНСКАЯ АКАДЕМИЯ</b>\n\n"
-        "📜 <i>\"Шепчущие залы, где мозолистые руки учатся забытым ремеслам. "
-        "Здесь, усталые работяги становятся ремесленниками — их пот "
-        "обменивается на точность каменщиков, интуицию архитекторов, "
-        "терпение строителей мостов. Доски гудят уравнениями, мастерские "
-        "пахнут сосновой смолой и амбициями.\"</i>\n\n"
-        f"🙍‍♂️ <b>Разнорабочих:</b> {workers_count.get('laborer', 0)}\n"
-        f"📚 <b>Обучается:</b> {len(active_trainings)}\n"
-        f"🎓 <b>Специалистов:</b> {sum(specialists_count.values())}\n\n"
-        "🎯 Выберите действие:"
+    academy_text = t('academy_welcome', user.language,
+        laborers=workers_count.get('laborer', 0),
+        training=len(active_trainings),
+        specialists=sum(specialists_count.values())
     )
 
     await callback.message.edit_text(
         text=academy_text,
         reply_markup=get_academy_menu(),
-        parse_mode="HTML"
+        parse_mode="Markdown"
     )
     await callback.answer()
 
@@ -65,38 +59,26 @@ async def labor_exchange(callback: CallbackQuery):
 
     can_hire, reason, remaining = await can_hire_worker(user_id)
     workers_count = await get_hired_workers_count(user_id)
-    total_workers = sum(workers_count.values())
-
-    # Стоимость найма (процент команды)
-    hire_cost_percent = 30 + (total_workers * 5)
 
     # Статус найма
     if can_hire:
-        status = "✅ Можно нанять рабочего"
+        status = t('hire_status_ready', user.language)
     elif reason == "cooldown":
         hours = remaining // 3600
         minutes = (remaining % 3600) // 60
-        status = f"⏰ Следующий найм через: {hours}ч {minutes}мин"
+        status = t('hire_status_cooldown', user.language, hours=hours, minutes=minutes)
     else:
-        status = "🚫 Достигнут дневной лимит"
+        status = t('hire_status_limit', user.language)
 
-    exchange_text = (
-        "🛠️ <b>БИРЖА ТРУДА</b>\n\n"
-        "💼 <i>\"Ищите работников среди островитян — но поторопитесь, "
-        "хорошие долго не задерживаются!\"</i>\n\n"
-        f"⚠️ <b>Внимание:</b> Стоимость найма работника увеличивается "
-        f"на 5💵 из-за нехватки персонала на острове.\n\n"
-        f"💰 <b>Цена найма:</b> (30 + %w_team%) 💵\n"
-        f"🙍‍♂️ <b>У вас разнорабочих:</b> {workers_count.get('laborer', 0)}\n\n"
-        f"🔄 {status}\n\n"
-        "💡 После найма следующий рабочий будет доступен через 24 часа "
-        "(можно пропустить за 💠RBTC)."
+    exchange_text = t('labor_exchange', user.language,
+        laborers=workers_count.get('laborer', 0),
+        status=status
     )
 
     await callback.message.edit_text(
         text=exchange_text,
         reply_markup=get_labor_exchange_menu(can_hire, workers_count.get('laborer', 0)),
-        parse_mode="HTML"
+        parse_mode="Markdown"
     )
     await callback.answer()
 
@@ -124,41 +106,24 @@ async def hire_slot(callback: CallbackQuery):
 @router.callback_query(F.data == "info_free_slots")
 async def info_free_slots(callback: CallbackQuery):
     """Информация о бесплатных слотах"""
-    info_text = (
-        "🆓 <b>БЕСПЛАТНЫЕ СЛОТЫ</b>\n\n"
-        "Доступно всем игрокам без дополнительных условий.\n\n"
-        "📊 <b>Лимит:</b> 3 рабочих\n"
-        "💰 <b>Стоимость:</b> (30 + %w_team%) 💵\n"
-        "⏰ <b>Cooldown:</b> 24 часа между наймом"
-    )
+    user = await get_user(callback.from_user.id)
+    info_text = t('info_free_slots', user.language)
     await callback.answer(info_text, show_alert=True)
 
 
 @router.callback_query(F.data == "info_business_slots")
 async def info_business_slots(callback: CallbackQuery):
     """Информация о слотах бизнес-лицензии"""
-    info_text = (
-        "📜 <b>СЛОТЫ БИЗНЕС-ЛИЦЕНЗИИ</b>\n\n"
-        "Требуется активная бизнес-лицензия.\n\n"
-        "📊 <b>Лимит:</b> +3 дополнительных рабочих\n"
-        "💰 <b>Стоимость:</b> (30 + %w_team%) 💵\n"
-        "⏰ <b>Cooldown:</b> 24 часа между наймом\n\n"
-        "🔑 Купите бизнес-лицензию для разблокировки!"
-    )
+    user = await get_user(callback.from_user.id)
+    info_text = t('info_business_slots', user.language)
     await callback.answer(info_text, show_alert=True)
 
 
 @router.callback_query(F.data == "info_quantum_slots")
 async def info_quantum_slots(callback: CallbackQuery):
     """Информация о слотах Quantum-Pass"""
-    info_text = (
-        "🪪 <b>СЛОТЫ QUANTUM-PASS</b>\n\n"
-        "Требуется активный Quantum-Pass.\n\n"
-        "📊 <b>Лимит:</b> +3 дополнительных рабочих\n"
-        "💰 <b>Стоимость:</b> (30 + %w_team%) 💵\n"
-        "⏰ <b>Cooldown:</b> 24 часа между наймом\n\n"
-        "✨ Купите Quantum-Pass для разблокировки!"
-    )
+    user = await get_user(callback.from_user.id)
+    info_text = t('info_quantum_slots', user.language)
     await callback.answer(info_text, show_alert=True)
 
 
@@ -166,24 +131,21 @@ async def info_quantum_slots(callback: CallbackQuery):
 async def expert_courses(callback: CallbackQuery):
     """Экспертные курсы - выбор профессии"""
     user_id = callback.from_user.id
+    user = await get_user(user_id)
 
     workers_count = await get_hired_workers_count(user_id)
     slots_info = await get_training_slots_info(user_id)
 
-    courses_text = (
-        "🎓 <b>ЭКСПЕРТНЫЕ КУРСЫ</b>\n\n"
-        "📚 <i>\"Превратите простых работяг в опытных специалистов через "
-        "суровое обучение в Авианской Академии. Каждый курс требует времени, "
-        "ресурсов и щепотку квантовой удачи.\"</i>\n\n"
-        f"🙍‍♂️ <b>Разнорабочих доступно:</b> {workers_count.get('laborer', 0)}\n"
-        f"📖 <b>Учебных мест:</b> {slots_info['used']}/{slots_info['total']}\n\n"
-        "🎯 <b>Выберите профессию для обучения:</b>"
+    courses_text = t('expert_courses', user.language,
+        laborers=workers_count.get('laborer', 0),
+        slots_used=slots_info['used'],
+        slots_total=slots_info['total']
     )
 
     await callback.message.edit_text(
         text=courses_text,
         reply_markup=get_profession_selection_menu(),
-        parse_mode="HTML"
+        parse_mode="Markdown"
     )
     await callback.answer()
 
@@ -207,23 +169,14 @@ async def train_profession(callback: CallbackQuery):
 async def training_class(callback: CallbackQuery):
     """Учебный класс - просмотр обучающихся"""
     user_id = callback.from_user.id
+    user = await get_user(user_id)
 
     active_trainings = await get_active_trainings(user_id)
     slots_info = await get_training_slots_info(user_id)
 
     if not active_trainings:
-        class_text = (
-            "🏫 <b>УЧЕБНЫЙ КЛАСС</b>\n\n"
-            "📝 Сейчас никто не обучается.\n"
-            "Отправьте разнорабочих на экспертные курсы!"
-        )
+        class_text = t('training_class_empty', user.language)
     else:
-        class_text = (
-            "🏫 <b>УЧЕБНЫЙ КЛАСС</b>\n\n"
-            f"📖 <b>Занято мест:</b> {slots_info['used']}/{slots_info['total']}\n\n"
-            "👨‍🎓 <b>Обучаются:</b>\n"
-        )
-
         profession_icons = {
             'builder': '👷', 'farmer': '👨‍🌾', 'woodman': '🧑‍🚒',
             'soldier': '💂', 'fisherman': '🎣', 'scientist': '👨‍🔬',
@@ -236,17 +189,22 @@ async def training_class(callback: CallbackQuery):
             'cook': 'Повар', 'teacher': 'Учитель', 'doctor': 'Доктор'
         }
 
+        training_list = ""
         for i, training in enumerate(active_trainings, 1):
             icon = profession_icons.get(training['type'], '👤')
             name = profession_names.get(training['type'], 'Специалист')
-            class_text += f"{i}. {icon} {name} - ⏰ {training['time_left']}\n"
+            training_list += f"{i}. {icon} {name} - ⏰ {training['time_left']}\n"
 
-        class_text += "\n💡 Обучение завершится автоматически!"
+        class_text = t('training_class_active', user.language,
+            slots_used=slots_info['used'],
+            slots_total=slots_info['total'],
+            training_list=training_list.strip()
+        )
 
     await callback.message.edit_text(
         text=class_text,
         reply_markup=get_training_class_menu(),
-        parse_mode="HTML"
+        parse_mode="Markdown"
     )
     await callback.answer()
 
@@ -286,4 +244,5 @@ async def slot_header(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("cooldown_"))
 async def cooldown_info(callback: CallbackQuery):
     """Информация о слоте на кулдауне"""
-    await callback.answer("⏳ Этот слот на 24-часовом кулдауне. Используйте Boost для пропуска!", show_alert=True)
+    user = await get_user(callback.from_user.id)
+    await callback.answer(t('cooldown_slot', user.language), show_alert=True)

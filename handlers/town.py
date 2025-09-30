@@ -14,7 +14,7 @@ router = Router()
 
 
 # Обработчик текстовых сообщений для входа в город
-@router.message(F.text.in_(["🏛️ Город", "Town"]))
+@router.message(F.text.in_(["🏢 Город", "Town", "🏛️ Город"]))
 async def town_handler(message: Message, state: FSMContext):
     """Вход в город через текстовое меню"""
     user_id = message.from_user.id
