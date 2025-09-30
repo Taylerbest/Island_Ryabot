@@ -116,7 +116,7 @@ async def init_database():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-
+        await create_academy_tables()
         await db.commit()
 
 async def get_user(user_id: int) -> Optional[User]:
@@ -303,3 +303,490 @@ async def update_user_resources(user_id: int, **resources):
                 values
             )
             await db.commit()
+
+
+async def create_academy_tables():
+    """Создает таблицы для системы Академии"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Таблица наемных рабочих (разнорабочих)
+        await db.execute("""
+                         CREATE TABLE IF NOT EXISTS hired_workers
+                         (
+                             id
+                             INTEGER
+                             PRIMARY
+                             KEY
+                             AUTOINCREMENT,
+                             user_id
+                             INTEGER,
+                             worker_type
+                             TEXT
+                             DEFAULT
+                             'laborer',
+                             status
+                             TEXT
+                             DEFAULT
+                             'idle',
+                             hired_at
+                             TIMESTAMP
+                             DEFAULT
+                             CURRENT_TIMESTAMP,
+                             next_available_at
+                             TIMESTAMP,
+                             FOREIGN
+                             KEY
+                         (
+                             user_id
+                         ) REFERENCES users
+                         (
+                             user_id
+                         )
+                             )
+                         """)
+
+        # Таблица обучающихся специалистов
+        await db.execute("""
+                         CREATE TABLE IF NOT EXISTS training_units
+                         (
+                             id
+                             INTEGER
+                             PRIMARY
+                             KEY
+                             AUTOINCREMENT,
+                             user_id
+                             INTEGER,
+                             unit_type
+                             TEXT
+                             NOT
+                             NULL,
+                             status
+                             TEXT
+                             DEFAULT
+                             'training',
+                             started_at
+                             TIMESTAMP
+                             DEFAULT
+                             CURRENT_TIMESTAMP,
+                             completed_at
+                             TIMESTAMP,
+                             worker_id
+                             INTEGER,
+                             FOREIGN
+                             KEY
+                         (
+                             user_id
+                         ) REFERENCES users
+                         (
+                             user_id
+                         ),
+                             FOREIGN KEY
+                         (
+                             worker_id
+                         ) REFERENCES hired_workers
+                         (
+                             id
+                         )
+                             )
+                         """)
+
+        # Таблица готовых специалистов
+        await db.execute("""
+                         CREATE TABLE IF NOT EXISTS trained_specialists
+                         (
+                             id
+                             INTEGER
+                             PRIMARY
+                             KEY
+                             AUTOINCREMENT,
+                             user_id
+                             INTEGER,
+                             specialist_type
+                             TEXT
+                             NOT
+                             NULL,
+                             level
+                             INTEGER
+                             DEFAULT
+                             1,
+                             status
+                             TEXT
+                             DEFAULT
+                             'available',
+                             created_at
+                             TIMESTAMP
+                             DEFAULT
+                             CURRENT_TIMESTAMP,
+                             last_worked
+                             TIMESTAMP,
+                             FOREIGN
+                             KEY
+                         (
+                             user_id
+                         ) REFERENCES users
+                         (
+                             user_id
+                         )
+                             )
+                         """)
+
+        # Таблица ограничений найма (для отслеживания 24-часового лимита)
+        await db.execute("""
+                         CREATE TABLE IF NOT EXISTS hire_cooldowns
+                         (
+                             id
+                             INTEGER
+                             PRIMARY
+                             KEY
+                             AUTOINCREMENT,
+                             user_id
+                             INTEGER,
+                             last_hire_time
+                             TIMESTAMP
+                             DEFAULT
+                             CURRENT_TIMESTAMP,
+                             hires_count
+                             INTEGER
+                             DEFAULT
+                             0,
+                             reset_date
+                             DATE
+                             DEFAULT (
+                             date
+                         (
+                             'now'
+                         )),
+                             FOREIGN KEY
+                         (
+                             user_id
+                         ) REFERENCES users
+                         (
+                             user_id
+                         )
+                             )
+                         """)
+
+        await db.commit()
+
+
+# Функции для работы с разнорабочими
+async def get_hired_workers_count(user_id: int) -> dict:
+    """Получает количество нанятых рабочих по типам"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("""
+                                  SELECT worker_type, COUNT(*)
+                                  FROM hired_workers
+                                  WHERE user_id = ?
+                                    AND status != 'consumed'
+                                  GROUP BY worker_type
+                                  """, (user_id,))
+        results = await cursor.fetchall()
+
+        return {row[0]: row[1] for row in results}
+
+
+async def can_hire_worker(user_id: int) -> tuple[bool, str, int]:
+    """
+    Проверяет, может ли пользователь нанять рабочего
+    Returns: (можно_нанять, причина, время_до_следующего_найма_в_секундах)
+    """
+    user = await get_user(user_id)
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Проверяем cooldown
+        cursor = await db.execute("""
+                                  SELECT last_hire_time, hires_count, reset_date
+                                  FROM hire_cooldowns
+                                  WHERE user_id = ?
+                                  ORDER BY id DESC LIMIT 1
+                                  """, (user_id,))
+        cooldown = await cursor.fetchone()
+
+        if cooldown:
+            from datetime import datetime, timedelta
+            last_hire = datetime.fromisoformat(cooldown[0])
+            hires_today = cooldown[1]
+            reset_date = cooldown[2]
+
+            # Проверяем, нужно ли сбросить счетчик (новый день)
+            if reset_date != datetime.now().date().isoformat():
+                hires_today = 0
+
+            # Проверяем 24-часовой cooldown
+            time_since_last_hire = datetime.now() - last_hire
+            if time_since_last_hire < timedelta(hours=24):
+                remaining_seconds = int((timedelta(hours=24) - time_since_last_hire).total_seconds())
+                return False, "cooldown", remaining_seconds
+
+            # Проверяем лимиты в зависимости от подписок
+            max_hires = 3  # Базовый лимит
+
+            # TODO: Добавить проверку бизнес-лицензии
+            # if user.has_business_license:
+            #     max_hires += 3
+
+            # TODO: Добавить проверку Quantum Pass
+            # if user.has_quantum_pass:
+            #     max_hires += 3
+
+            if hires_today >= max_hires:
+                return False, "limit_reached", 0
+
+        return True, "ok", 0
+
+
+async def hire_worker(user_id: int) -> tuple[bool, str]:
+    """
+    Нанимает разнорабочего
+    Returns: (успешно, сообщение)
+    """
+    can_hire, reason, remaining = await can_hire_worker(user_id)
+
+    if not can_hire:
+        if reason == "cooldown":
+            hours = remaining // 3600
+            minutes = (remaining % 3600) // 60
+            return False, f"⏰ Следующий найм через: {hours}ч {minutes}мин"
+        elif reason == "limit_reached":
+            return False, "🚫 Достигнут лимит найма! Улучшите подписку."
+
+    user = await get_user(user_id)
+
+    # Считаем стоимость найма (30 + 5 * количество_уже_нанятых)
+    workers_count = await get_hired_workers_count(user_id)
+    total_workers = sum(workers_count.values())
+    hire_cost = 30 + (5 * total_workers)
+
+    if user.ryabucks < hire_cost:
+        return False, f"❌ Недостаточно рябаксов! Нужно: {hire_cost}💵"
+
+    from datetime import datetime, timedelta
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Нанимаем рабочего
+        next_available = datetime.now() + timedelta(hours=24)
+        await db.execute("""
+                         INSERT INTO hired_workers (user_id, worker_type, status, next_available_at)
+                         VALUES (?, 'laborer', 'idle', ?)
+                         """, (user_id, next_available.isoformat()))
+
+        # Обновляем cooldown
+        await db.execute("""
+                         INSERT INTO hire_cooldowns (user_id, last_hire_time, hires_count, reset_date)
+                         VALUES (?, ?, 1, date ('now')) ON CONFLICT(user_id) DO
+                         UPDATE SET
+                             last_hire_time = excluded.last_hire_time,
+                             hires_count = CASE
+                             WHEN reset_date = date ('now') THEN hires_count + 1
+                             ELSE 1
+                         END
+                         ,
+                reset_date = date('now')
+                         """, (user_id, datetime.now().isoformat()))
+
+        # Списываем деньги
+        await db.execute("""
+                         UPDATE users
+                         SET ryabucks = ryabucks - ?
+                         WHERE user_id = ?
+                         """, (hire_cost, user_id))
+
+        await db.commit()
+
+    return True, f"✅ Разнорабочий нанят! Потрачено: {hire_cost}💵"
+
+
+# Функции для обучения специалистов
+async def get_training_slots_info(user_id: int) -> dict:
+    """Получает информацию о слотах обучения"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Считаем активные обучения
+        cursor = await db.execute("""
+                                  SELECT COUNT(*)
+                                  FROM training_units
+                                  WHERE user_id = ?
+                                    AND status = 'training'
+                                  """, (user_id,))
+        active_training = (await cursor.fetchone())[0]
+
+        # Базовые слоты: 2
+        # +1 за бизнес-лицензию
+        # +1 за Quantum Pass
+        base_slots = 2
+        total_slots = base_slots  # TODO: добавить проверку подписок
+
+        return {
+            'used': active_training,
+            'total': total_slots,
+            'available': total_slots - active_training
+        }
+
+
+async def start_training(user_id: int, unit_type: str) -> tuple[bool, str]:
+    """
+    Начинает обучение специалиста
+    Returns: (успешно, сообщение)
+    """
+    # Проверяем наличие свободных рабочих
+    workers_count = await get_hired_workers_count(user_id)
+    if workers_count.get('laborer', 0) == 0:
+        return False, "❌ Нет свободных разнорабочих! Наймите их на бирже труда."
+
+    # Проверяем свободные слоты
+    slots_info = await get_training_slots_info(user_id)
+    if slots_info['available'] <= 0:
+        return False, "❌ Все учебные места заняты! Дождитесь окончания обучения."
+
+    # Стоимость и время обучения для каждого типа
+    training_data = {
+        'builder': {'name': '👷 Строитель', 'cost': 100, 'time_hours': 2},
+        'farmer': {'name': '👨‍🌾 Фермер', 'cost': 100, 'time_hours': 2},
+        'woodman': {'name': '🧑‍🚒 Лесник', 'cost': 120, 'time_hours': 3},
+        'soldier': {'name': '💂 Солдат', 'cost': 150, 'time_hours': 4},
+        'fisherman': {'name': '🎣 Рыбак', 'cost': 110, 'time_hours': 2.5},
+        'scientist': {'name': '👨‍🔬 Ученый', 'cost': 200, 'time_hours': 6},
+        'cook': {'name': '👨‍🍳 Повар', 'cost': 130, 'time_hours': 3},
+        'teacher': {'name': '👨‍🏫 Учитель', 'cost': 180, 'time_hours': 5},
+        'doctor': {'name': '🧑‍⚕️ Доктор', 'cost': 220, 'time_hours': 8}
+    }
+
+    if unit_type not in training_data:
+        return False, "❌ Неизвестная профессия!"
+
+    user = await get_user(user_id)
+    unit_info = training_data[unit_type]
+
+    if user.ryabucks < unit_info['cost']:
+        return False, f"❌ Недостаточно рябаксов! Нужно: {unit_info['cost']}💵"
+
+    from datetime import datetime, timedelta
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Находим свободного рабочего
+        cursor = await db.execute("""
+                                  SELECT id
+                                  FROM hired_workers
+                                  WHERE user_id = ?
+                                    AND worker_type = 'laborer'
+                                    AND status = 'idle' LIMIT 1
+                                  """, (user_id,))
+        worker = await cursor.fetchone()
+
+        if not worker:
+            return False, "❌ Нет свободных разнорабочих!"
+
+        worker_id = worker[0]
+
+        # Отправляем на обучение
+        completion_time = datetime.now() + timedelta(hours=unit_info['time_hours'])
+        await db.execute("""
+                         INSERT INTO training_units (user_id, unit_type, started_at, completed_at, worker_id)
+                         VALUES (?, ?, ?, ?, ?)
+                         """, (user_id, unit_type, datetime.now().isoformat(), completion_time.isoformat(), worker_id))
+
+        # Помечаем рабочего как занятого
+        await db.execute("""
+                         UPDATE hired_workers
+                         SET status = 'training'
+                         WHERE id = ?
+                         """, (worker_id,))
+
+        # Списываем деньги
+        await db.execute("""
+                         UPDATE users
+                         SET ryabucks = ryabucks - ?
+                         WHERE user_id = ?
+                         """, (unit_info['cost'], user_id))
+
+        await db.commit()
+
+    hours = int(unit_info['time_hours'])
+    minutes = int((unit_info['time_hours'] % 1) * 60)
+    return True, f"✅ {unit_info['name']} отправлен на обучение!\n⏰ Завершится через: {hours}ч {minutes}мин"
+
+
+async def get_active_trainings(user_id: int) -> list:
+    """Получает список активных обучений"""
+    from datetime import datetime
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("""
+                                  SELECT unit_type, started_at, completed_at
+                                  FROM training_units
+                                  WHERE user_id = ?
+                                    AND status = 'training'
+                                  ORDER BY completed_at ASC
+                                  """, (user_id,))
+        trainings = await cursor.fetchall()
+
+        result = []
+        for training in trainings:
+            unit_type, started, completed = training
+            completed_time = datetime.fromisoformat(completed)
+            time_left = completed_time - datetime.now()
+
+            if time_left.total_seconds() > 0:
+                hours = int(time_left.total_seconds() // 3600)
+                minutes = int((time_left.total_seconds() % 3600) // 60)
+                result.append({
+                    'type': unit_type,
+                    'time_left': f"{hours}ч {minutes}мин"
+                })
+
+        return result
+
+
+async def complete_trainings(user_id: int) -> int:
+    """Завершает готовые обучения и возвращает количество выпускников"""
+    from datetime import datetime
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Находим завершенные обучения
+        cursor = await db.execute("""
+                                  SELECT id, unit_type, worker_id
+                                  FROM training_units
+                                  WHERE user_id = ?
+                                    AND status = 'training'
+                                    AND completed_at <= ?
+                                  """, (user_id, datetime.now().isoformat()))
+        completed = await cursor.fetchall()
+
+        count = 0
+        for training in completed:
+            training_id, unit_type, worker_id = training
+
+            # Создаем специалиста
+            await db.execute("""
+                             INSERT INTO trained_specialists (user_id, specialist_type, status)
+                             VALUES (?, ?, 'available')
+                             """, (user_id, unit_type))
+
+            # Помечаем обучение завершенным
+            await db.execute("""
+                             UPDATE training_units
+                             SET status = 'completed'
+                             WHERE id = ?
+                             """, (training_id,))
+
+            # Удаляем использованного рабочего
+            await db.execute("""
+                             UPDATE hired_workers
+                             SET status = 'consumed'
+                             WHERE id = ?
+                             """, (worker_id,))
+
+            count += 1
+
+        await db.commit()
+        return count
+
+
+async def get_specialists_count(user_id: int) -> dict:
+    """Получает количество обученных специалистов по типам"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("""
+                                  SELECT specialist_type, COUNT(*)
+                                  FROM trained_specialists
+                                  WHERE user_id = ?
+                                    AND status != 'dead'
+                                  GROUP BY specialist_type
+                                  """, (user_id,))
+        results = await cursor.fetchall()
+
+        return {row[0]: row[1] for row in results}

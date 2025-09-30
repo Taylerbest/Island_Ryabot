@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 # Импортируем роутеры обработчиков
 from handlers.start import router as start_router
 from handlers.town import router as town_router
+from handlers.academy import router as academy_router
 
 
 # Будем добавлять по мере создания:
@@ -34,7 +35,7 @@ async def main():
     dp.include_router(start_router)
     # dp.include_router(farm_router)
     dp.include_router(town_router)
-    # ... остальные роутеры добавим позже
+    dp.include_router(academy_router)
 
     # Запускаем бота
     print("🌟 Ryabot Island запущен! 🌟")
