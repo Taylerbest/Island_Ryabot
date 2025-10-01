@@ -59,9 +59,6 @@ async def init_supabase():
         supabase_manager.initialize()
 
         # Проверяем подключение простым запросом
-        client = supabase_manager.get_client()
-
-        # Тестовый запрос - проверяем доступ к таблице пользователей
         test_result = await supabase_manager.execute_query(
             table="users",
             operation="count"
@@ -89,36 +86,51 @@ async def setup_bot():
     from middlewares.throttling import ThrottlingMiddleware
     dp.callback_query.middleware(ThrottlingMiddleware(rate_limit=0.3))
 
-    # Подключаем все роутеры
+    # Подключаем роутеры - ИСПРАВЛЕННАЯ ВЕРСИЯ
     logger.info("🔧 Подключение модулей...")
 
     try:
-        from handlers import (
-            start, academy, town, farm, work,
-            citizen, storage, rankings, referral, about, admin
-        )
-
-        # ИСПРАВЛЕНИЕ: Правильно определяем роутеры как список кортежей
-        routers_list = [
-            ('start', start.router),          # Старт и туториал
-            ('academy', academy.router),      # Академия и наём
-            ('town', town.router),           # Город и постройки
-            ('farm', farm.router),           # Ферма и животные
-            ('work', work.router),           # Работа и заработок
-            ('citizen', citizen.router),     # Профиль жителя
-            ('storage', storage.router),     # Склад и инвентарь
-            ('rankings', rankings.router),   # Рейтинги
-            ('referral', referral.router),   # Реферальная система
-            ('about', about.router),         # Информация
-            ('admin', admin.router)          # Админские команды
+        # Список модулей с проверкой наличия router
+        modules_to_load = [
+            ('handlers.start', 'start'),
+            ('handlers.academy', 'academy'),
+            ('handlers.town', 'town'),
+            ('handlers.farm', 'farm'),
+            ('handlers.work', 'work'),
+            ('handlers.citizen', 'citizen'),
+            ('handlers.storage', 'storage'),
+            ('handlers.rankings', 'rankings'),
+            ('handlers.referral', 'referral'),
+            ('handlers.about', 'about'),
+            ('handlers.admin', 'admin')
         ]
 
-        for name, router_obj in routers_list:
-            dp.include_router(router_obj)
-            logger.info(f"   ✅ {name.capitalize()} модуль")
+        loaded_count = 0
+        for module_path, module_name in modules_to_load:
+            try:
+                # Динамический импорт модуля
+                module = __import__(module_path, fromlist=['router'])
 
-    except ImportError as e:
-        logger.error(f"❌ Ошибка импорта модулей: {e}")
+                # Проверяем наличие router
+                if hasattr(module, 'router'):
+                    dp.include_router(module.router)
+                    logger.info(f"   ✅ {module_name.capitalize()} модуль")
+                    loaded_count += 1
+                else:
+                    logger.warning(f"   ⚠️ {module_name.capitalize()} модуль - router отсутствует")
+
+            except ImportError as e:
+                logger.warning(f"   ⚠️ {module_name.capitalize()} модуль - ошибка импорта: {e}")
+            except Exception as e:
+                logger.error(f"   ❌ {module_name.capitalize()} модуль - критическая ошибка: {e}")
+
+        logger.info(f"📦 Загружено модулей: {loaded_count}/{len(modules_to_load)}")
+
+        if loaded_count == 0:
+            raise Exception("Не загружен ни один модуль!")
+
+    except Exception as e:
+        logger.error(f"❌ Критическая ошибка загрузки модулей: {e}")
         raise
 
     return bot, dp
@@ -230,9 +242,7 @@ async def main():
         except Exception as e:
             logger.error(f"❌ Ошибка при закрытии бота: {e}")
 
-        # Supabase не требует явного закрытия соединений
         logger.info("✅ Supabase соединения освобождены")
-
         logger.info("👋 Ryabot Island остановлен. До встречи!")
 
 def run():

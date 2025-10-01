@@ -1,6 +1,6 @@
 """
 Обработчик стартовых команд для Ryabot Island v2.0
-Полная поддержка Supabase архитектуры
+Полная поддержка Supabase архитектуры с улучшенной обработкой ошибок
 """
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
@@ -57,7 +57,7 @@ async def handle_new_user(message: Message, state: FSMContext):
         # [InlineKeyboardButton(text="🇺🇸 English", callback_data="lang_en")],  # Для будущего
     ])
 
-    welcome_text = t("choose_language", "ru")
+    welcome_text = t("choose_language", "ru", default="🌍 Выберите ваш язык:")
     await send_formatted(message, welcome_text, reply_markup=keyboard)
     await state.set_state(MenuState.OUTSIDE_ISLAND)
 
@@ -85,7 +85,8 @@ async def send_main_menu(message: Message, user, state: FSMContext):
         logger.error(f"Ошибка отправки главного меню для пользователя {user.user_id}: {e}")
         # Fallback без статистики
         welcome_text = t('welcome_to_game', user.language,
-                         online_players=12, daily_rbtc="15.67", active_expeditions=8)
+                         online_players=12, daily_rbtc="15.67", active_expeditions=8,
+                         default="🏝️ Добро пожаловать на Ryabot Island!")
         keyboard = get_start_menu(user.language)
         await send_formatted(message, welcome_text, reply_markup=keyboard)
 
@@ -97,21 +98,28 @@ async def language_selected(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
 
         user_id = callback.from_user.id
-        username = callback.from_user.username
+        username = callback.from_user.username or f"user_{user_id}"  # Fallback username
         language = callback.data.split("_")[1]
 
-        # Создаем нового пользователя
+        logger.info(f"Создание пользователя {user_id} ({username}) с языком {language}")
+
+        # ИСПРАВЛЕНИЕ: правильные данные для создания пользователя
         user = await create_user(user_id, username)
         if not user:
-            await callback.message.edit_text("❌ Ошибка создания профиля. Попробуйте /start")
+            logger.error(f"Не удалось создать пользователя {user_id}")
+            await callback.message.edit_text(
+                "❌ Ошибка создания профиля. Попробуйте /start",
+                parse_mode=None
+            )
             return
 
         # Устанавливаем язык
         await update_user_language(user_id, language)
+        logger.info(f"Язык {language} установлен для пользователя {user_id}")
 
         # Подтверждаем выбор языка
-        confirmation_text = t("language_selected", language)
-        await callback.message.edit_text(confirmation_text)
+        confirmation_text = t("language_selected", language, default="✅ Язык установлен: Русский")
+        await callback.message.edit_text(confirmation_text, parse_mode=None)
 
         # Небольшая пауза и показываем главное меню
         import asyncio
@@ -123,7 +131,10 @@ async def language_selected(callback: CallbackQuery, state: FSMContext):
 
     except Exception as e:
         logger.error(f"Ошибка выбора языка для пользователя {callback.from_user.id}: {e}")
-        await callback.message.edit_text("❌ Ошибка выбора языка. Попробуйте /start")
+        await callback.message.edit_text(
+            "❌ Ошибка создания профиля. Попробуйте /start",
+            parse_mode=None
+        )
 
 
 @router.message(F.text == "🏝️ Войти на остров")
@@ -134,6 +145,7 @@ async def enter_island(message: Message, state: FSMContext):
         user = await get_user(user_id)
 
         if not user:
+            logger.warning(f"Пользователь {user_id} не найден при входе на остров")
             await start_handler(message, state)
             return
 
@@ -158,7 +170,7 @@ async def enter_island(message: Message, state: FSMContext):
 
     except Exception as e:
         logger.error(f"Ошибка входа на остров для пользователя {message.from_user.id}: {e}")
-        await message.answer("⚠️ Ошибка входа на остров. Попробуйте позже.")
+        await message.answer("⚠️ Ошибка входа на остров. Попробуйте позже.", parse_mode=None)
 
 
 async def start_tutorial(message: Message, user, state: FSMContext):
@@ -177,7 +189,38 @@ async def start_tutorial(message: Message, user, state: FSMContext):
         logger.error(f"Ошибка запуска туториала для пользователя {user.user_id}: {e}")
         # Пропускаем туториал при ошибке
         await complete_tutorial(user.user_id)
-        await enter_island(message, state)
+        await enter_island_after_tutorial(message, user, state)
+
+
+async def enter_island_after_tutorial(message: Message, user, state: FSMContext):
+    """Вход на остров после туториала"""
+    try:
+        # Получаем обновленные данные пользователя
+        updated_user = await get_user(user.user_id)
+        if not updated_user:
+            updated_user = user
+
+        entering_text = await get_text('entering_island', updated_user.user_id,
+                                       level=updated_user.level,
+                                       energy=updated_user.energy,
+                                       ryabucks=updated_user.ryabucks,
+                                       rbtc=f"{updated_user.rbtc:.2f}")
+
+        await send_formatted(
+            message,
+            entering_text,
+            reply_markup=get_island_menu(updated_user.language)
+        )
+        await state.set_state(MenuState.ON_ISLAND)
+
+    except Exception as e:
+        logger.error(f"Ошибка входа на остров после туториала: {e}")
+        # Fallback
+        await message.answer(
+            "🏝️ Добро пожаловать на остров!",
+            reply_markup=get_island_menu('ru'),
+            parse_mode=None
+        )
 
 
 @router.callback_query(F.data == "tutorial_start")
@@ -190,7 +233,7 @@ async def tutorial_step_1(callback: CallbackQuery, state: FSMContext):
         user = await get_user(user_id)
 
         if not user:
-            await callback.message.edit_text("❌ Ошибка: пользователь не найден")
+            await callback.message.edit_text("❌ Ошибка: пользователь не найден", parse_mode=None)
             return
 
         step1_text = await get_text('tutorial_step_1', user_id)
@@ -205,7 +248,7 @@ async def tutorial_step_1(callback: CallbackQuery, state: FSMContext):
 
     except Exception as e:
         logger.error(f"Ошибка tutorial_step_1 для пользователя {callback.from_user.id}: {e}")
-        await callback.message.edit_text("❌ Ошибка туториала. Переходим к игре...")
+        await callback.message.edit_text("❌ Ошибка туториала. Переходим к игре...", parse_mode=None)
         await tutorial_complete_handler(callback, state)
 
 
@@ -219,7 +262,7 @@ async def tutorial_step_2(callback: CallbackQuery, state: FSMContext):
         user = await get_user(user_id)
 
         if not user:
-            await callback.message.edit_text("❌ Ошибка: пользователь не найден")
+            await callback.message.edit_text("❌ Ошибка: пользователь не найден", parse_mode=None)
             return
 
         step2_text = await get_text('tutorial_step_2', user_id)
@@ -234,7 +277,7 @@ async def tutorial_step_2(callback: CallbackQuery, state: FSMContext):
 
     except Exception as e:
         logger.error(f"Ошибка tutorial_step_2 для пользователя {callback.from_user.id}: {e}")
-        await callback.message.edit_text("❌ Ошибка туториала. Переходим к игре...")
+        await callback.message.edit_text("❌ Ошибка туториала. Переходим к игре...", parse_mode=None)
         await tutorial_complete_handler(callback, state)
 
 
@@ -248,7 +291,7 @@ async def tutorial_step_3(callback: CallbackQuery, state: FSMContext):
         user = await get_user(user_id)
 
         if not user:
-            await callback.message.edit_text("❌ Ошибка: пользователь не найден")
+            await callback.message.edit_text("❌ Ошибка: пользователь не найден", parse_mode=None)
             return
 
         step3_text = await get_text('tutorial_step_3', user_id)
@@ -263,7 +306,7 @@ async def tutorial_step_3(callback: CallbackQuery, state: FSMContext):
 
     except Exception as e:
         logger.error(f"Ошибка tutorial_step_3 для пользователя {callback.from_user.id}: {e}")
-        await callback.message.edit_text("❌ Ошибка туториала. Переходим к игре...")
+        await callback.message.edit_text("❌ Ошибка туториала. Переходим к игре...", parse_mode=None)
         await tutorial_complete_handler(callback, state)
 
 
@@ -272,6 +315,7 @@ async def tutorial_complete_handler(callback: CallbackQuery, state: FSMContext):
     """Завершение туториала"""
     try:
         user_id = callback.from_user.id
+        logger.info(f"Завершение туториала для пользователя {user_id}")
 
         # Завершаем туториал (дает бонусы)
         await complete_tutorial(user_id)
@@ -279,34 +323,23 @@ async def tutorial_complete_handler(callback: CallbackQuery, state: FSMContext):
         # Получаем обновленные данные пользователя
         user = await get_user(user_id)
         if not user:
-            await callback.message.edit_text("❌ Ошибка завершения туториала")
+            await callback.message.edit_text("❌ Ошибка завершения туториала", parse_mode=None)
             return
 
         # Показываем сообщение о завершении
         complete_text = await get_text('tutorial_complete', user_id)
-        await callback.message.edit_text(complete_text)
+        await callback.message.edit_text(complete_text, parse_mode="Markdown")
 
         # Пауза для чтения
         import asyncio
         await asyncio.sleep(2)
 
         # Переходим на остров
-        entering_text = await get_text('entering_island', user_id,
-                                       level=user.level,
-                                       energy=user.energy,
-                                       ryabucks=user.ryabucks,
-                                       rbtc=f"{user.rbtc:.2f}")
-
-        await send_formatted(
-            callback,
-            entering_text,
-            reply_markup=get_island_menu(user.language)
-        )
-        await state.set_state(MenuState.ON_ISLAND)
+        await enter_island_after_tutorial(callback.message, user, state)
 
     except Exception as e:
         logger.error(f"Ошибка завершения туториала для пользователя {callback.from_user.id}: {e}")
-        await callback.message.edit_text("✅ Туториал завершен! Добро пожаловать на остров!")
+        await callback.message.edit_text("✅ Туториал завершен! Добро пожаловать на остров!", parse_mode=None)
 
 
 @router.callback_query(F.data == "tutorial_skip")
@@ -320,29 +353,21 @@ async def tutorial_skip(callback: CallbackQuery, state: FSMContext):
 
         user = await get_user(user_id)
         if not user:
-            await callback.message.edit_text("❌ Ошибка пропуска туториала")
+            await callback.message.edit_text("❌ Ошибка пропуска туториала", parse_mode=None)
             return
 
-        entering_text = await get_text('entering_island', user_id,
-                                       level=user.level,
-                                       energy=user.energy,
-                                       ryabucks=user.ryabucks,
-                                       rbtc=f"{user.rbtc:.2f}")
+        await callback.message.edit_text("⚡ Туториал пропущен!", parse_mode=None)
 
-        await callback.message.edit_text("⚡ Туториал пропущен!")
+        # Небольшая пауза
+        import asyncio
+        await asyncio.sleep(1)
 
-        # Отправляем новое сообщение с островом
-        await send_formatted(
-            callback.message,
-            entering_text,
-            reply_markup=get_island_menu(user.language)
-        )
-
-        await state.set_state(MenuState.ON_ISLAND)
+        # Переходим на остров
+        await enter_island_after_tutorial(callback.message, user, state)
 
     except Exception as e:
         logger.error(f"Ошибка пропуска туториала для пользователя {callback.from_user.id}: {e}")
-        await callback.message.edit_text("⚡ Туториал пропущен! Добро пожаловать на остров!")
+        await callback.message.edit_text("⚡ Туториал пропущен! Добро пожаловать на остров!", parse_mode=None)
 
 
 @router.message(F.text.in_(["⚙️ Настройки", "📱 Поддержка", "🌍 Язык"]))
@@ -393,7 +418,7 @@ async def start_menu_buttons(message: Message, state: FSMContext):
 
     except Exception as e:
         logger.error(f"Ошибка обработки кнопки стартового меню {message.text}: {e}")
-        await message.answer("⚠️ Произошла ошибка. Попробуйте позже.")
+        await message.answer("⚠️ Произошла ошибка. Попробуйте позже.", parse_mode=None)
 
 
 # Команды для отладки и поддержки
@@ -410,16 +435,12 @@ async def help_command(message: Message):
 ⚡ **Быстрые команды:**
 /economy - Текущие цены
 /claim - Собрать энергию
-/gather - Собрать все (Premium)
 
 🏝️ **Разделы игры:**
 🏠 Ферма - Животные и постройки
 🏢 Город - Здания и услуги  
 👤 Житель - Ваш профиль
 💼 Работа - Заработок денег
-🎒 Рюкзак - Инвентарь
-👥 Друзья - Реферальная система
-🏆 Лидеры - Рейтинги игроков
 
 📱 Нужна помощь? @support_ryabot"""
 

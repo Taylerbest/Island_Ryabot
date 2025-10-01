@@ -121,16 +121,31 @@ class ThrottlingMiddleware(BaseMiddleware):
         user_id = None
         action_type = "unknown"
 
-        if event.callback_query:
+        # ИСПРАВЛЕНИЕ: правильная проверка типа события
+        if isinstance(event, CallbackQuery):
+            # Если event - это CallbackQuery напрямую
+            user_id = event.from_user.id
+            action_type = "callback_query"
+        elif isinstance(event, Message):
+            # Если event - это Message напрямую
+            user_id = event.from_user.id
+            if event.text and event.text.startswith('/'):
+                action_type = "command"
+            else:
+                action_type = "message"
+        elif hasattr(event, 'callback_query') and event.callback_query:
+            # Если event - это Update с callback_query
             user_id = event.callback_query.from_user.id
             action_type = "callback_query"
-        elif event.message:
+        elif hasattr(event, 'message') and event.message:
+            # Если event - это Update с message
             user_id = event.message.from_user.id
             if event.message.text and event.message.text.startswith('/'):
                 action_type = "command"
             else:
                 action_type = "message"
         elif hasattr(event, 'from_user') and event.from_user:
+            # Прямой доступ к from_user
             user_id = event.from_user.id
             action_type = "other"
 

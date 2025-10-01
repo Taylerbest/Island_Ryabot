@@ -112,8 +112,14 @@ def t(key: str, lang: str = 'ru', **kwargs) -> str:
         # Загружаем локализацию
         texts = load_locale(lang)
 
-        # Получаем текст
-        text = texts.get(key, f"[MISSING: {key}]")
+        # Получаем текст (используем default если ключ не найден)
+        if key in texts:
+            text = texts[key]
+        elif default is not None:
+            text = default
+        else:
+            text = f"[MISSING: {key}]"
+            logger.warning(f"⚠️ Отсутствует текст для ключа '{key}' в языке '{lang}'")
 
         # Форматируем с параметрами
         try:
@@ -124,6 +130,8 @@ def t(key: str, lang: str = 'ru', **kwargs) -> str:
 
     except Exception as e:
         logger.error(f"❌ Ошибка в функции t() '{key}': {e}")
+        if default is not None:
+            return default
         return f"[ERROR: {key}]"
 
 def get_game_prices(lang: str = 'ru') -> dict:
