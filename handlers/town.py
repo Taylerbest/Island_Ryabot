@@ -4,7 +4,7 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
-from database.models import get_user
+from database.supabase_models import get_user, create_user, update_user_resources, get_island_stats
 from keyboards.town import get_town_menu
 from utils.texts import t
 from utils.states import MenuState
