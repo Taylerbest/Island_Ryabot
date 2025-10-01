@@ -94,9 +94,14 @@ async def get_user(user_id: int) -> Optional[User]:
             filters={"user_id": user_id},
             single=True
         )
-        return User(result) if result else None
+
+        # ИСПРАВЛЕНИЕ: result уже является словарем при single=True
+        if result:
+            return User(result)
+        return None
+
     except Exception as e:
-        logger.error(f"Ошибка получения пользователя {user_id}: {e}")
+        logger.error(f"❌ Ошибка получения пользователя {user_id}: {e}")
         return None
 
 
@@ -106,6 +111,16 @@ async def create_user(user_id: int, username: str = None) -> Optional[User]:
         user_data = {
             "user_id": user_id,
             "username": username,
+            "language": "ru",  # Добавляем язык по умолчанию
+            "level": 1,
+            "experience": 0,
+            "energy": 100,
+            "ryabucks": 1000,
+            "rbtc": 0.0,
+            "golden_shards": 0,
+            "quantum_keys": 0,
+            "land_plots": 1,
+            "tutorial_completed": False,
             "created_at": datetime.now().isoformat(),
             "last_active": datetime.now().isoformat()
         }
@@ -116,10 +131,22 @@ async def create_user(user_id: int, username: str = None) -> Optional[User]:
             data=user_data
         )
 
-        return User(result) if result else None
+        # ИСПРАВЛЕНИЕ: result уже является словарем, не нужно брать [0]
+        if result:
+            logger.info(f"✅ Пользователь {user_id} успешно создан в Supabase")
+            return User(result)
+        else:
+            logger.error(f"❌ Supabase вернул None при создании пользователя {user_id}")
+            return None
+
     except Exception as e:
-        logger.error(f"Ошибка создания пользователя {user_id}: {e}")
+        logger.error(f"❌ Ошибка создания пользователя {user_id}: {e}")
+        # Подробная отладочная информация
+        logger.error(f"   Username: {username}")
+        logger.error(f"   Exception type: {type(e).__name__}")
+        logger.error(f"   Exception args: {e.args}")
         return None
+
 
 
 async def get_user_language(user_id: int) -> str:

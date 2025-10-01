@@ -1,10 +1,14 @@
 """
 Обработчик для города
 """
+"""
+Обработчик для города
+"""
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
-from database.supabase_models import get_user, create_user, update_user_resources, get_island_stats
+# ИСПРАВЛЕНИЕ: импорт из правильного модуля
+from database.models import get_user, create_user, update_user_resources, get_island_stats
 from keyboards.town import get_town_menu
 from utils.texts import t
 from utils.states import MenuState
@@ -21,12 +25,14 @@ async def town_handler(message: Message, state: FSMContext):
         await message.answer("⚠️ Сначала зарегистрируйтесь, нажав /start")
         return
 
+    # ИСПРАВЛЕНИЕ: fallback значения для t()
     town_text = t(
         "town_welcome",
         user.language,
         level=user.level,
         energy=user.energy,
-        ryabucks=user.ryabucks
+        ryabucks=user.ryabucks,
+        default="🏢 **Добро пожаловать в город!**\n\n🏛️ Центр цивилизации на острове.\n\n👤 **Ваш статус:**\n⭐ Уровень: {level}\n🔋 Энергия: {energy}/100\n💵 Рябаксы: {ryabucks}\n\n🏗️ Выберите здание для посещения:"
     )
 
     await send_formatted(
@@ -45,12 +51,14 @@ async def town_callback_handler(callback: CallbackQuery, state: FSMContext):
         await callback.answer("⚠️ Ошибка: пользователь не найден")
         return
 
+    # ИСПРАВЛЕНИЕ: fallback значения для t()
     town_text = t(
         "town_welcome",
         user.language,
         level=user.level,
         energy=user.energy,
-        ryabucks=user.ryabucks
+        ryabucks=user.ryabucks,
+        default="🏢 **Добро пожаловать в город!**\n\n🏛️ Центр цивилизации на острове.\n\n👤 **Ваш статус:**\n⭐ Уровень: {level}\n🔋 Энергия: {energy}/100\n💵 Рябаксы: {ryabucks}\n\n🏗️ Выберите здание для посещения:"
     )
 
     await send_formatted(
@@ -61,6 +69,9 @@ async def town_callback_handler(callback: CallbackQuery, state: FSMContext):
     )
     await state.set_state(MenuState.ON_ISLAND)
     await callback.answer()
+
+# Остальные обработчики остаются как есть...
+
 
 
 # Остальные обработчики города...

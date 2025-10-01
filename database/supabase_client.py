@@ -45,18 +45,10 @@ class SupabaseManager:
         return self.client
 
     async def execute_query(self, table: str, operation: str, data: Dict = None,
-                          filters: Dict = None, select: str = "*",
-                          single: bool = False) -> Any:
+                            filters: Dict = None, select: str = "*",
+                            single: bool = False) -> Any:
         """
         Универсальный метод для выполнения запросов к Supabase
-
-        Args:
-            table: имя таблицы
-            operation: тип операции (select, insert, update, delete, upsert)
-            data: данные для операции
-            filters: фильтры для запроса
-            select: поля для выборки
-            single: вернуть одну запись или все
         """
         try:
             client = self.get_client()
@@ -67,7 +59,7 @@ class SupabaseManager:
                 if filters:
                     for key, value in filters.items():
                         if isinstance(value, dict) and 'operator' in value:
-                            # Поддержка сложных операторов: {'operator': 'gte', 'value': 18}
+                            # Поддержка сложных операторов
                             op = value['operator']
                             val = value['value']
                             if op == 'gte':
@@ -85,14 +77,16 @@ class SupabaseManager:
                         else:
                             query = query.eq(key, value)
 
-                if single:
-                    query = query.single()
-
                 response = query.execute()
-                return response.data[0] if single and response.data else response.data
+
+                # ИСПРАВЛЕНИЕ: правильная обработка single
+                if single:
+                    return response.data[0] if response.data else None
+                return response.data
 
             elif operation == "insert":
                 response = query.insert(data).execute()
+                # ИСПРАВЛЕНИЕ: возвращаем первый элемент для insert
                 return response.data[0] if response.data else None
 
             elif operation == "update":
@@ -112,7 +106,7 @@ class SupabaseManager:
 
             elif operation == "upsert":
                 response = query.upsert(data).execute()
-                return response.data
+                return response.data[0] if response.data else None
 
             elif operation == "count":
                 query = query.select("*", count="exact")
@@ -123,7 +117,7 @@ class SupabaseManager:
                 return response.count
 
         except Exception as e:
-            logger.error(f"Ошибка Supabase запроса: {e} | Table: {table} | Operation: {operation}")
+            logger.error(f"❌ Ошибка Supabase запроса: {e} | Table: {table} | Operation: {operation}")
             return None
 
     async def execute_rpc(self, function_name: str, params: Dict = None) -> Any:

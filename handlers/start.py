@@ -107,11 +107,14 @@ async def language_selected(callback: CallbackQuery, state: FSMContext):
         user = await create_user(user_id, username)
         if not user:
             logger.error(f"Не удалось создать пользователя {user_id}")
-            await callback.message.edit_text(
-                "❌ Ошибка создания профиля. Попробуйте /start",
-                parse_mode=None
-            )
-            return
+            # Попробуем получить существующего пользователя
+            user = await get_user(user_id)
+            if not user:
+                await callback.message.edit_text(
+                    "❌ Ошибка создания профиля. Попробуйте /start",
+                    parse_mode=None
+                )
+                return
 
         # Устанавливаем язык
         await update_user_language(user_id, language)

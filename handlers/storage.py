@@ -1,6 +1,12 @@
 from aiogram import Router
 from utils.message_helper import send_formatted
-from database.supabase_models import get_user, create_user, update_user_resources, get_island_stats
+from database.models import get_user, create_user, update_user_resources, get_island_stats
+import logging
+
+logger = logging.getLogger(__name__)
+
 router = Router()
 
-# Добавь обработчики рюкзака здесь
+# Добавьте обработчики здесь
+
+logger.info("✅ [Referral] handler загружен (Supabase версия)")
