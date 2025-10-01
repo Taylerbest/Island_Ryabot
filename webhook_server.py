@@ -1,3 +1,6 @@
+"""
+FastAPI webhook сервер для Ryabot Island (только Supabase)
+"""
 from fastapi import FastAPI, Request
 from aiogram import Bot, Dispatcher
 from aiogram.types import Update
@@ -6,48 +9,46 @@ import os
 from dotenv import load_dotenv
 import logging
 import asyncio
-from middlewares.throttling import ThrottlingMiddleware
-from handlers.admin import router as admin_router
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s"
+)
 
 load_dotenv()
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+# Создание приложения
+app = FastAPI(title="Ryabot Island", version="1.0.0")
+bot = Bot(token=os.getenv("BOT_TOKEN"))
+dp = Dispatcher(storage=MemoryStorage())
 
-app = FastAPI()
-bot = Bot(token=BOT_TOKEN)
-storage = MemoryStorage()
-dp = Dispatcher(storage=storage)
+# Middleware
+from middlewares.throttling import ThrottlingMiddleware
+
 dp.callback_query.middleware(ThrottlingMiddleware(rate_limit=0.3))
-dp.include_router(admin_router)
 
-# Регистрация всех роутеров
-from handlers.start import router as start_router
-from handlers.academy import router as academy_router
-from handlers.town import router as town_router
-from handlers.farm import router as farm_router
-from handlers.work import router as work_router
-from handlers.citizen import router as citizen_router
-from handlers.storage import router as storage_router
-from handlers.rankings import router as rankings_router
-from handlers.referral import router as referral_router
-from handlers.about import router as about_router
+# Все роутеры в одном блоке
+from handlers import (
+    start, academy, town, farm, work,
+    citizen, storage, rankings, referral, about, admin
+)
 
-dp.include_router(start_router)
-dp.include_router(academy_router)
-dp.include_router(town_router)
-dp.include_router(farm_router)
-dp.include_router(work_router)
-dp.include_router(citizen_router)
-dp.include_router(storage_router)
-dp.include_router(rankings_router)
-dp.include_router(referral_router)
-dp.include_router(about_router)
+routers = [
+    start.router, academy.router, town.router, farm.router,
+    work.router, citizen.router, storage.router,
+    rankings.router, referral.router, about.router, admin.router
+]
 
+for router in routers:
+    dp.include_router(router)
+
+
+# ================== ENDPOINTS ==================
 
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
+    """Обработка webhook от Telegram"""
     data = await request.json()
     update = Update(**data)
     await dp.feed_update(bot=bot, update=update)
@@ -56,37 +57,59 @@ async def telegram_webhook(request: Request):
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "bot": "Ryabot Island", "version": "1.0.0"}
+    """Проверка работоспособности"""
+    return {
+        "status": "ok",
+        "bot": "Ryabot Island",
+        "version": "1.0.0",
+        "database": "PostgreSQL/Supabase"
+    }
 
+
+# ================== LIFECYCLE EVENTS ==================
 
 @app.on_event("startup")
 async def on_startup():
-    from database.models import init_database, create_academy_tables
+    """Инициализация при запуске"""
+    from database.models import (
+        initialize_db_pool,
+        init_database,
+        create_academy_tables
+    )
 
-    # Инициализация базы данных
+    # Инициализация PostgreSQL
+    await initialize_db_pool()
     await init_database()
     await create_academy_tables()
 
+    # Установка webhook
     webhook_url = os.getenv("WEBHOOK_URL")
+    if not webhook_url:
+        logging.error("❌ WEBHOOK_URL not set in environment variables")
+        return
 
     try:
-        # Проверяем текущий webhook
         webhook_info = await bot.get_webhook_info()
 
         if webhook_info.url == webhook_url:
-            print(f"✅ Webhook уже установлен: {webhook_url}")
+            logging.info(f"✅ Webhook уже установлен: {webhook_url}")
         else:
-            # Удаляем старый и устанавливаем новый
             await bot.delete_webhook(drop_pending_updates=True)
             await asyncio.sleep(1)
             await bot.set_webhook(webhook_url, drop_pending_updates=True)
-            print(f"✅ Webhook установлен: {webhook_url}")
+            logging.info(f"✅ Webhook установлен: {webhook_url}")
 
     except Exception as e:
-        print(f"❌ Ошибка установки webhook: {e}")
+        logging.error(f"❌ Ошибка установки webhook: {e}")
 
 
 @app.on_event("shutdown")
 async def on_shutdown():
+    """Очистка при остановке"""
+    from database.models import close_connection_pool
+
     await bot.delete_webhook()
     await bot.session.close()
+    await close_connection_pool()
+
+    logging.info("✅ Приложение остановлено")
