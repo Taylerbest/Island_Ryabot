@@ -461,4 +461,94 @@ async def menu_command(message: Message, state: FSMContext):
         await start_handler(message, state)
 
 
+@router.callback_query(F.data == "watch_ad")
+async def watch_ad_handler(callback: CallbackQuery):
+    """Обработчик просмотра рекламы для получения энергии"""
+    try:
+        from database.models import give_ad_energy
+
+        user_id = callback.from_user.id
+        success, message = await give_ad_energy(user_id)
+
+        if success:
+            await callback.answer("🎉 Энергия получена!", show_alert=True)
+            await callback.message.edit_text(
+                f"📺 **Реклама просмотрена!**\n\n{message}",
+                parse_mode="Markdown"
+            )
+        else:
+            await callback.answer(message, show_alert=True)
+
+    except Exception as e:
+        logger.error(f"Ошибка просмотра рекламы: {e}")
+        await callback.answer("❌ Произошла ошибка. Попробуйте позже", show_alert=True)
+
+
+@router.message(Command("energy"))
+async def energy_command(message: Message):
+    """Команда для проверки энергии и способов восстановления"""
+    try:
+        user = await get_user(message.from_user.id)
+        if not user:
+            await message.answer("❌ Сначала зарегистрируйтесь через /start")
+            return
+
+        from database.models import get_stable_energy
+
+        # Проверяем доступность сбора из конюшни
+        can_collect, stable_msg, potential_energy = await get_stable_energy(user.user_id)
+
+        energy_text = f"""⚡ **Ваша энергия: {user.energy}/100**
+
+🎯 **Способы восстановления:**
+
+📺 **Реклама:** +20 энергии каждые 30 мин
+🐴 **Конюшня:** {stable_msg if not can_collect else f"Готово к сбору: +{potential_energy} энергии"}
+
+💡 **Расход энергии:**
+• Переходы между разделами: 1 энергия
+• Игровые действия: 1-2 энергии
+• Экспедиции и мини-игры: 2 энергии"""
+
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+        keyboard = []
+        if can_collect and potential_energy > 0:
+            keyboard.append(
+                [InlineKeyboardButton(text="🐴 Собрать энергию из конюшни", callback_data="claim_stable_energy")])
+
+        keyboard.append([InlineKeyboardButton(text="📺 Посмотреть рекламу", callback_data="watch_ad")])
+
+        reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard) if keyboard else None
+
+        await message.answer(energy_text, reply_markup=reply_markup, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Ошибка команды energy: {e}")
+        await message.answer("⚠️ Ошибка получения информации об энергии")
+
+
+@router.callback_query(F.data == "claim_stable_energy")
+async def claim_stable_energy_handler(callback: CallbackQuery):
+    """Обработчик сбора энергии из конюшни"""
+    try:
+        from database.models import get_stable_energy
+
+        user_id = callback.from_user.id
+        success, message, energy_gained = await get_stable_energy(user_id)
+
+        if success:
+            await callback.answer(f"🐴 Получено +{energy_gained} энергии!", show_alert=True)
+            await callback.message.edit_text(
+                f"🐴 **Энергия собрана из конюшни!**\n\n{message}",
+                parse_mode="Markdown"
+            )
+        else:
+            await callback.answer(message, show_alert=True)
+
+    except Exception as e:
+        logger.error(f"Ошибка сбора энергии из конюшни: {e}")
+        await callback.answer("❌ Произошла ошибка при сборе энергии", show_alert=True)
+
+
 logger.info("✅ Start handler загружен (Supabase версия)")

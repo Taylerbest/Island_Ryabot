@@ -86,6 +86,15 @@ async def setup_bot():
     from middlewares.throttling import ThrottlingMiddleware
     dp.callback_query.middleware(ThrottlingMiddleware(rate_limit=0.3))
 
+    # В функции setup_bot() добавьте после throttling middleware:
+
+    from middlewares.energy_middleware import EnergyMiddleware
+
+    # Подключаем энергетический middleware
+    energy_middleware = EnergyMiddleware()
+    dp.message.middleware(energy_middleware)
+    dp.callback_query.middleware(energy_middleware)
+
     # Подключаем роутеры - ИСПРАВЛЕННАЯ ВЕРСИЯ
     logger.info("🔧 Подключение модулей...")
 

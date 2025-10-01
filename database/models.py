@@ -687,6 +687,138 @@ async def get_island_stats() -> dict:
         }
 
 
+# ================== ENERGY SYSTEM ==================
+
+async def update_user_energy(user_id: int, new_energy: int):
+    """Обновляет энергию пользователя"""
+    try:
+        # Ограничиваем энергию от 0 до 100
+        clamped_energy = max(0, min(100, new_energy))
+
+        await supabase_manager.execute_query(
+            table="users",
+            operation="update",
+            data={
+                "energy": clamped_energy,
+                "last_active": datetime.now().isoformat()
+            },
+            filters={"user_id": user_id}
+        )
+        logger.debug(f"Энергия пользователя {user_id} обновлена: {clamped_energy}")
+    except Exception as e:
+        logger.error(f"Ошибка обновления энергии для {user_id}: {e}")
+
+
+async def give_ad_energy(user_id: int) -> tuple[bool, str]:
+    """Выдает энергию за просмотр рекламы"""
+    try:
+        # Проверяем кулдаун на просмотр рекламы (30 минут)
+        last_ad = await supabase_manager.execute_query(
+            table="user_ad_rewards",
+            operation="select",
+            filters={"user_id": user_id},
+            single=True
+        )
+
+        import datetime as dt
+        now = dt.datetime.now()
+
+        if last_ad:
+            last_watched = dt.datetime.fromisoformat(last_ad['last_watched'].replace('Z', '+00:00'))
+            if (now - last_watched.replace(tzinfo=None)).total_seconds() < 1800:  # 30 минут
+                remaining = 1800 - (now - last_watched.replace(tzinfo=None)).total_seconds()
+                minutes = int(remaining / 60)
+                return False, f"⏰ Следующая реклама через {minutes} минут"
+
+        # Выдаем энергию
+        user = await get_user(user_id)
+        if not user:
+            return False, "❌ Пользователь не найден"
+
+        new_energy = min(100, user.energy + 20)
+        await update_user_energy(user_id, new_energy)
+
+        # Обновляем время последнего просмотра
+        ad_data = {
+            "user_id": user_id,
+            "last_watched": now.isoformat(),
+            "ads_watched_today": 1  # Можно расширить для статистики
+        }
+
+        await supabase_manager.execute_query(
+            table="user_ad_rewards",
+            operation="upsert",
+            data=ad_data
+        )
+
+        energy_gained = new_energy - user.energy
+        logger.info(f"🎬 Пользователь {user_id} получил {energy_gained} энергии за рекламу")
+
+        return True, f"🎉 Получено +{energy_gained} энергии! Текущая энергия: {new_energy}/100"
+
+    except Exception as e:
+        logger.error(f"Ошибка выдачи энергии за рекламу {user_id}: {e}")
+        return False, "❌ Произошла ошибка. Попробуйте позже"
+
+
+async def get_stable_energy(user_id: int) -> tuple[bool, str, int]:
+    """Собирает энергию из конюшни"""
+    try:
+        # Проверяем есть ли конюшни у пользователя
+        stables = await supabase_manager.execute_query(
+            table="farm_buildings",
+            operation="select",
+            filters={"user_id": user_id, "building_type": "stable", "status": "active"}
+        )
+
+        if not stables:
+            return False, "❌ У вас нет построенных конюшен!", 0
+
+        total_energy = 0
+        ready_stables = 0
+
+        for stable in stables:
+            # Проверяем время последнего сбора
+            last_collected_str = stable.get('last_collected')
+            if last_collected_str:
+                last_collected = datetime.fromisoformat(last_collected_str.replace('Z', '+00:00'))
+                time_diff = datetime.now() - last_collected.replace(tzinfo=None)
+
+                if time_diff.total_seconds() >= 14400:  # 4 часа = 14400 секунд
+                    # Готово к сбору
+                    stable_level = stable.get('level', 1)
+                    energy_per_stable = 5 * stable_level  # Базовая энергия умножается на уровень
+
+                    total_energy += energy_per_stable
+                    ready_stables += 1
+
+                    # Обновляем время сбора
+                    await supabase_manager.execute_query(
+                        table="farm_buildings",
+                        operation="update",
+                        data={"last_collected": datetime.now().isoformat()},
+                        filters={"id": stable['id']}
+                    )
+
+        if total_energy > 0:
+            # Выдаем энергию пользователю
+            user = await get_user(user_id)
+            if user:
+                new_energy = min(100, user.energy + total_energy)
+                await update_user_energy(user_id, new_energy)
+
+                actual_gained = new_energy - user.energy
+                logger.info(f"🐴 Пользователь {user_id} собрал {actual_gained} энергии из {ready_stables} конюшен")
+
+                return True, f"🐴 Собрано +{actual_gained} энергии из {ready_stables} конюшен! Текущая: {new_energy}/100", actual_gained
+
+        return False, "⏰ Конюшни еще не готовы. Энергию можно собирать каждые 4 часа", 0
+
+    except Exception as e:
+        logger.error(f"Ошибка сбора энергии из конюшни {user_id}: {e}")
+        return False, "❌ Произошла ошибка при сборе энергии", 0
+
+
 # ================== СОВМЕСТИМОСТЬ ==================
 
 async def execute_db(query: str = None, *params, fetch_one=False, fetch_all=False, **kwargs):
