@@ -21,28 +21,33 @@ class PostgresConnectionPool:
         self.pool = None
 
     async def initialize(self):
-        self.pool = await asyncpg.create_pool(
-            host=os.getenv("POSTGRES_HOST"),
-            user=os.getenv("POSTGRES_USER"),
-            password=os.getenv("POSTGRES_PASSWORD"),
-            database=os.getenv("POSTGRES_DB", "postgres"),
-            port=int(os.getenv("POSTGRES_PORT", 5432)),
-            min_size=5,
-            max_size=20,
-            command_timeout=60
-        )
-        logger.info("✅ PostgreSQL connection pool initialized")
+        user = os.getenv("POSTGRES_USER")
+        password = os.getenv("POSTGRES_PASSWORD")
+        host = os.getenv("POSTGRES_HOST")
+        port = os.getenv("POSTGRES_PORT", "5432")
+        database = os.getenv("POSTGRES_DB", "postgres")
 
-    async def acquire(self):
-        return await self.pool.acquire()
+        logger.info(f"🔌 Подключение к PostgreSQL: {host}:{port}")
 
-    async def release(self, conn):
-        await self.pool.release(conn)
+        try:
+            self.pool = await asyncpg.create_pool(
+                host=host,
+                user=user,
+                password=password,
+                database=database,
+                port=int(port),
+                ssl='require',  # SSL обязателен для Supabase
+                min_size=1,
+                max_size=5,
+                command_timeout=60,
+                timeout=15
+            )
+            logger.info("✅ PostgreSQL pool created!")
 
-    async def close_all(self):
-        if self.pool:
-            await self.pool.close()
-            logger.info("✅ PostgreSQL connection pool closed")
+        except Exception as e:
+            logger.error(f"❌ Pool creation failed: {type(e).__name__}: {e}")
+            raise
+
 
 # Глобальный пул
 connection_pool = PostgresConnectionPool()
