@@ -16,26 +16,38 @@ logger = logging.getLogger(__name__)
 
 # ================== POSTGRESQL CONNECTION POOL ==================
 
-class PostgresConnectionPool:
-    def __init__(self):
-        self.pool = None
+async def close_all(self):
+    if self.pool:
+        await self.pool.close()
+        logger.info("✅ PostgreSQL connection pool closed")
 
     async def initialize(self):
+        # IPv4 Fix: принудительно резолвим хост в IPv4
+        import socket
+        original_host = os.getenv("POSTGRES_HOST")
         user = os.getenv("POSTGRES_USER")
         password = os.getenv("POSTGRES_PASSWORD")
-        host = os.getenv("POSTGRES_HOST")
-        port = os.getenv("POSTGRES_PORT", "5432")
         database = os.getenv("POSTGRES_DB", "postgres")
+        port = int(os.getenv("POSTGRES_PORT", 5432))
 
-        logger.info(f"🔌 Подключение к PostgreSQL: {host}:{port}")
+        # DNS резолюция в IPv4
+        try:
+            ipv4_host = socket.gethostbyname(original_host)
+            logger.info(f"✅ Resolved {original_host} to IPv4: {ipv4_host}")
+            use_host = ipv4_host
+        except Exception as e:
+            logger.error(f"❌ Failed to resolve {original_host}: {e}")
+            use_host = original_host  # Fallback
+
+        logger.info(f"🔌 Подключение к PostgreSQL: {use_host}:{port}")
 
         try:
             self.pool = await asyncpg.create_pool(
-                host=host,
+                host=use_host,
                 user=user,
                 password=password,
                 database=database,
-                port=int(port),
+                port=port,
                 ssl='require',  # SSL обязателен для Supabase
                 min_size=1,
                 max_size=5,
@@ -48,9 +60,73 @@ class PostgresConnectionPool:
             logger.error(f"❌ Pool creation failed: {type(e).__name__}: {e}")
             raise
 
+    async def close_all(self):
+        """Добавь этот метод!"""
+        if self.pool:
+            await self.pool.close()
+            logger.info("✅ PostgreSQL connection pool closed")
 
-# Глобальный пул
+
+# ================== POSTGRESQL CONNECTION POOL ==================
+
+class PostgresConnectionPool:
+    def __init__(self):
+        self.pool = None
+
+    async def initialize(self):
+        # IPv4 Fix: принудительно резолвим хост в IPv4
+        import socket
+        original_host = os.getenv("POSTGRES_HOST")
+        user = os.getenv("POSTGRES_USER")
+        password = os.getenv("POSTGRES_PASSWORD")
+        database = os.getenv("POSTGRES_DB", "postgres")
+        port = int(os.getenv("POSTGRES_PORT", 5432))
+
+        # DNS резолюция в IPv4
+        try:
+            ipv4_host = socket.gethostbyname(original_host)
+            logger.info(f"✅ Resolved {original_host} to IPv4: {ipv4_host}")
+            use_host = ipv4_host
+        except Exception as e:
+            logger.error(f"❌ Failed to resolve {original_host}: {e}")
+            use_host = original_host  # Fallback
+
+        logger.info(f"🔌 Подключение к PostgreSQL: {use_host}:{port}")
+
+        try:
+            self.pool = await asyncpg.create_pool(
+                host=use_host,
+                user=user,
+                password=password,
+                database=database,
+                port=port,
+                ssl='require',  # SSL обязателен для Supabase
+                min_size=1,
+                max_size=5,
+                command_timeout=60,
+                timeout=15
+            )
+            logger.info("✅ PostgreSQL pool created!")
+
+        except Exception as e:
+            logger.error(f"❌ Pool creation failed: {type(e).__name__}: {e}")
+            raise
+
+    async def acquire(self):
+        return await self.pool.acquire()
+
+    async def release(self, conn):
+        await self.pool.release(conn)
+
+    async def close_all(self):
+        if self.pool:
+            await self.pool.close()
+            logger.info("✅ PostgreSQL connection pool closed")
+
+
+# Глобальный пул (ПОСЛЕ объявления класса!)
 connection_pool = PostgresConnectionPool()
+
 
 # ================== UTILITY FUNCTIONS ==================
 

@@ -31,7 +31,7 @@ def get_town_menu(lang: str = "ru") -> InlineKeyboardMarkup:
         ],
         # Пятый ряд
         [
-            InlineKeyboardButton(text="🏢 Недвижка", callback_data="realestate"),
+            InlineKeyboardButton(text="🏢 Недвижка", callback_data="real_estate"),
             InlineKeyboardButton(text="❤️‍🩹 Ветклиника", callback_data="vet_clinic")
         ],
         # Шестой ряд - ИЗМЕНЕНО
